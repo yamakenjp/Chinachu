@@ -23,9 +23,8 @@ const config = require(CONFIG_FILE);
 // Modules
 const path = require('path');
 const fs = require('fs');
-const util = require('util');
+const util = require('./common/lib/runtime-util');
 const child_process = require('child_process');
-const url = require('url');
 const querystring = require('querystring');
 const vm = require('vm');
 const os = require('os');
@@ -34,12 +33,13 @@ const events = require('events');
 const http = require('http');
 const https = require('https');
 const auth = require('http-auth');
-const socketio = require('socket.io');
+const { Server: SocketIOServer } = require('socket.io');
 const chinachu = require('chinachu-common');
-const ip = require("ip");
+const ipaddr = require('ipaddr.js');
 const geoip = require('geoip-lite');
 const mdns = require('mdns-js');
 const mirakurun = new (require("mirakurun").default)();
+const configureMirakurunClient = require('./common/lib/mirakurun-client');
 
 // Directory Checking
 if (!fs.existsSync('./data/') || !fs.existsSync('./log/') || !fs.existsSync('./web/')) {
@@ -81,7 +81,7 @@ process.on('uncaughtException', err => {
 		return;
 	}
 
-	console.error('uncaughtException: ' + err);
+	console.error('uncaughtException: ' + (err.stack || err));
 });
 
 // setuid
@@ -103,24 +103,7 @@ if (process.platform !== "win32") {
 
 // Mirakurun Client
 const mirakurunPath = config.mirakurunPath || config.schedulerMirakurunPath || "http+unix://%2Fvar%2Frun%2Fmirakurun.sock/";
-
-if (/(?:\/|\+)unix:/.test(mirakurunPath) === true) {
-	const standardFormat = /^http\+unix:\/\/([^\/]+)(\/?.*)$/;
-	const legacyFormat = /^http:\/\/unix:([^:]+):?(.*)$/;
-
-	if (standardFormat.test(mirakurunPath) === true) {
-		mirakurun.socketPath = mirakurunPath.replace(standardFormat, "$1").replace(/%2F/g, "/");
-		mirakurun.basePath = path.join(mirakurunPath.replace(standardFormat, "$2"), mirakurun.basePath);
-	} else {
-		mirakurun.socketPath = mirakurunPath.replace(legacyFormat, "$1");
-		mirakurun.basePath = path.join(mirakurunPath.replace(legacyFormat, "$2"), mirakurun.basePath);
-	}
-} else {
-	const urlObject = url.parse(mirakurunPath);
-	mirakurun.host = urlObject.hostname;
-	mirakurun.port = urlObject.port;
-	mirakurun.basePath = path.join(urlObject.pathname, mirakurun.basePath);
-}
+configureMirakurunClient(mirakurun, mirakurunPath);
 
 mirakurun.userAgent = `Chinachu/${pkg.version} (wui)`;
 mirakurun.priority = 0;
@@ -159,8 +142,7 @@ if (tlsEnabled) {
 	tlsOption = {
 		key : fs.readFileSync(config.wuiTlsKeyPath),
 		cert: fs.readFileSync(config.wuiTlsCertPath),
-		secureProtocol: 'SSLv23_method',
-		secureOptions: require('constants').SSL_OP_NO_SSLv2 | require('constants').SSL_OP_NO_SSLv3
+		minVersion: 'TLSv1.2'
 	};
 
 	// 秘密鍵または pfx のパスフレーズを表す文字列
@@ -195,19 +177,10 @@ var recorded  = [];
 let server, openServer, httpOpenServer;
 let serverMdns, openServerMdns;
 
-if (tlsEnabled) {
-	if (basicAuthEnabled) {
-		server = https.createServer(basic, tlsOption, httpServer);
-	} else {
-		server = https.createServer(tlsOption, httpServer);
-	}
-} else {
-	if (basicAuthEnabled) {
-		server = http.createServer(basic, httpServer);
-	} else {
-		server = http.createServer(httpServer);
-	}
-}
+const requestListener = basicAuthEnabled ? basic.check(httpServer) : httpServer;
+server = tlsEnabled
+	? https.createServer(tlsOption, requestListener)
+	: http.createServer(requestListener);
 
 if (config.wuiPort) {
 	server.timeout = 240000;
@@ -249,7 +222,7 @@ if (openServerEnabled) {
 					return (
 						a.family === "IPv4" &&
 						a.internal === false &&
-						ip.isPrivate(a.address) === true
+						ipaddr.parse(a.address).range() === 'private'
 					);
 				})
 				.forEach(a => addresses.push(a.address));
@@ -292,7 +265,7 @@ function httpServer(req, res) {
 	case 'GET':
 	case 'HEAD':
 
-		q = url.parse(req.url, false).query || '';
+		q = new URL(req.url, 'http://localhost').search.slice(1);
 
 		if (q.match(/^\{.*\}$/) === null) {
 			q = querystring.parse(q);
@@ -371,6 +344,7 @@ function httpServerMain(req, res, query) {
 			res.end('403 Forbidden\n');
 			log(403);
 			console.warn('Non-allowed Country IP Blocked', remoteAddress, JSON.stringify(geo));
+			return;
 		}
 	}
 
@@ -655,7 +629,7 @@ function httpServerMain(req, res, query) {
 				response     : res,
 				path         : path,
 				fs           : fs,
-				url          : url,
+				URL          : URL,
 				util         : util,
 				child_process: child_process,
 				Buffer       : Buffer,
@@ -803,7 +777,7 @@ function iosAddEventListner(io, eventName) {
 }
 
 function ioAddListener(server, isOpen) {
-	var io = socketio(server);
+	var io = new SocketIOServer(server);
 
 	io.on('connection', isOpen ? ioOpenServer : ioServer);
 
@@ -841,7 +815,7 @@ function ioServer(socket) {
 
 		// Base64デコード
 		try {
-			auth = new Buffer(auth, 'base64').toString('ascii');
+			auth = Buffer.from(auth, 'base64').toString('ascii');
 		} catch (e) {
 			socket.disconnect();
 			return;

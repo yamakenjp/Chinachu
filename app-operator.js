@@ -14,10 +14,8 @@ const RECORDING_DATA_FILE = __dirname + '/data/recording.json';
 const RECORDED_DATA_FILE  = __dirname + '/data/recorded.json';
 
 // 標準モジュールのロード
-const path = require('path');
-const url = require('url');
 const fs = require('fs');
-const util = require('util');
+const util = require('./common/lib/runtime-util');
 const child_process = require('child_process');
 
 // ディレクトリチェック
@@ -40,13 +38,11 @@ process.on('uncaughtException', (err) => {
 
 // 追加モジュールのロード
 const dateFormat = require('dateformat');
-const mkdirp = require('mkdirp');
-const Mtwitter = require('mtwitter');
-const disk = require('diskusage');
 const nodemailer = require("nodemailer");
-const sendmail = require("nodemailer-sendmail-transport");
+const { TwitterApi } = require('twitter-api-v2');
 const chinachu = require('chinachu-common');
 const mirakurun = new (require("mirakurun").default)();
+const configureMirakurunClient = require('./common/lib/mirakurun-client');
 
 //
 let reserves = [];
@@ -87,24 +83,7 @@ if (process.platform !== "win32") {
 
 // Mirakurun Client
 const mirakurunPath = config.mirakurunPath || config.schedulerMirakurunPath || "http+unix://%2Fvar%2Frun%2Fmirakurun.sock/";
-
-if (/(?:\/|\+)unix:/.test(mirakurunPath) === true) {
-	const standardFormat = /^http\+unix:\/\/([^\/]+)(\/?.*)$/;
-	const legacyFormat = /^http:\/\/unix:([^:]+):?(.*)$/;
-
-	if (standardFormat.test(mirakurunPath) === true) {
-		mirakurun.socketPath = mirakurunPath.replace(standardFormat, "$1").replace(/%2F/g, "/");
-		mirakurun.basePath = path.join(mirakurunPath.replace(standardFormat, "$2"), mirakurun.basePath);
-	} else {
-		mirakurun.socketPath = mirakurunPath.replace(legacyFormat, "$1");
-		mirakurun.basePath = path.join(mirakurunPath.replace(legacyFormat, "$2"), mirakurun.basePath);
-	}
-} else {
-	const urlObject = url.parse(mirakurunPath);
-	mirakurun.host = urlObject.hostname;
-	mirakurun.port = urlObject.port;
-	mirakurun.basePath = path.join(urlObject.pathname, mirakurun.basePath);
-}
+configureMirakurunClient(mirakurun, mirakurunPath);
 
 mirakurun.userAgent = `Chinachu/${pkg.version} (operator)`;
 mirakurun.priority = recordingPriority;
@@ -112,7 +91,7 @@ mirakurun.priority = recordingPriority;
 console.info(mirakurun);
 
 // sendmail
-const transporter = nodemailer.createTransport(sendmail());
+const transporter = nodemailer.createTransport({ sendmail: true });
 
 // 録画中リストをクリア
 fs.writeFileSync(RECORDING_DATA_FILE, '[]');
@@ -120,31 +99,23 @@ fs.writeFileSync(RECORDING_DATA_FILE, '[]');
 // 保存先ディレクトリが存在しない場合には作成
 if (!fs.existsSync(config.recordedDir)) {
 	util.log('MKDIR: ' + config.recordedDir);
-	mkdirp.sync(config.recordedDir);
+	fs.mkdirSync(config.recordedDir, { recursive: true });
 }
 
 // Tweeter (Experimental)
 let tweeter, tweeterUpdater;
 if (config.operTweeter && config.operTweeterAuth && config.operTweeterFormat) {
-	tweeter = new Mtwitter({
-		consumer_key       : config.operTweeterAuth.consumerKey,
-		consumer_secret    : config.operTweeterAuth.consumerSecret,
-		access_token_key   : config.operTweeterAuth.accessToken,
-		access_token_secret: config.operTweeterAuth.accessTokenSecret
+	tweeter = new TwitterApi({
+		appKey      : config.operTweeterAuth.consumerKey,
+		appSecret   : config.operTweeterAuth.consumerSecret,
+		accessToken : config.operTweeterAuth.accessToken,
+		accessSecret: config.operTweeterAuth.accessTokenSecret
 	});
 
 	tweeterUpdater = (status) => {
-		tweeter.post(
-			'/statuses/update',
-			{ status: status },
-			(err, item) => {
-				if (err) {
-					util.log('[Tweeter] Error: ' + JSON.stringify(err));
-				} else {
-					util.log('[Tweeter] Updated: ' + status);
-				}
-			}
-		);
+		tweeter.v2.tweet(status)
+			.then(() => util.log('[Tweeter] Updated: ' + status))
+			.catch(err => util.log('[Tweeter] Error: ' + JSON.stringify(err)));
 	};
 }
 
@@ -361,7 +332,7 @@ function doRecord(program, stream) {
 	const recDirPath = recPath.replace(/^(.+)\/.+$/, '$1');
 	if (!fs.existsSync(recDirPath)) {
 		util.log('MKDIR: ' + recDirPath);
-		mkdirp.sync(recDirPath);
+		fs.mkdirSync(recDirPath, { recursive: true });
 	}
 
 	// 保存ストリーム
@@ -407,7 +378,9 @@ function doRecord(program, stream) {
 	function finalize() {
 
 		stream.unpipe();
-		stream.req.abort();
+		if (stream.req && !stream.req.destroyed) {
+			stream.req.destroy();
+		}
 
 		process.removeListener('SIGINT', finalize);
 		process.removeListener('SIGQUIT', finalize);
@@ -478,20 +451,20 @@ function stopRecording(programId) {
 
 	const program = recording.find(program => program.id === programId);
 
-	if (program && program._stream) {
-		program._stream.req.abort();
+	if (program && program._stream && program._stream.req && !program._stream.req.destroyed) {
+		program._stream.req.destroy();
 	}
 }
 
 // ストレージチェック
 function storageChecker() {
 
-	disk.check(config.recordedDir, (err, info) => {
+	fs.statfs(config.recordedDir, (err, info) => {
 		if(err) {
 			return;
 		}
 
-		const freeMB = info.available / 1024 / 1024;
+		const freeMB = info.bavail * info.bsize / 1024 / 1024;
 		if (freeMB < storageLowSpaceThresholdMB) {
 			stChecked = 0;// すぐに再チェックするため
 			util.log(`ALERT: Storage Low Space! (${freeMB} MB < ${storageLowSpaceThresholdMB} MB)`);

@@ -12,7 +12,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/kanreisa/Chinachu.git"
+    "url": "https://github.com/yamakenjp/Chinachu.git"
   },
   "licenses": [
     {
@@ -21,13 +21,12 @@
     }
   ],
   "bugs": {
-    "url": "https://github.com/kanreisa/Chinachu/issues"
+    "url": "https://github.com/yamakenjp/Chinachu/issues"
   },
   "dependencies": {
-    "@chezearth/string": "^3.3.4-2"
+    "dateformat": "^4.6.3"
   },
-  "devDependencies": {},
   "engines": {
-    "node": ">=0.8.0"
+    "node": "^24.0.0"
   }
 }

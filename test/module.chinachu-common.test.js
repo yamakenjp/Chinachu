@@ -1,12 +1,20 @@
 "use strict";
 
-var os     = require('os');
-var fs     = require('fs');
-var should = require('should');
+const { after, describe, it } = require('node:test');
+const assert = require('node:assert/strict');
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
 
-var chinachu = require('chinachu-common');
+const chinachu = require('chinachu-common');
 
-var testDataPath = os.tmpDir() + '/chinachu-test-' + new Date().getTime() + '.json';
+const testDataPath = path.join(os.tmpdir(), 'chinachu-test-' + Date.now() + '.json');
+let watcher;
+
+after(function() {
+	watcher && watcher.close();
+	fs.rmSync(testDataPath, { force: true });
+});
 
 describe('(init)', function() {
 	
@@ -31,34 +39,46 @@ describe('jsonWatcher', function() {
 	
 	var test = null;
 	
-	it('read', function(done) {
-		
-		chinachu.jsonWatcher(testDataPath, function(err, data, msg) {
-			should.strictEqual(null, err);
-			
-			test = data;
-			
-			should.exist(test);
-			
-			done();
-		}, { now: true });
+	it('read', async function() {
+		await new Promise(function(resolve, reject) {
+			watcher = chinachu.jsonWatcher(testDataPath, function(err, data) {
+				try {
+					assert.equal(err, null);
+					test = data;
+					assert.ok(test);
+					resolve();
+				} catch (e) {
+					reject(e);
+				}
+			}, { now: true });
+		});
 	});
 	
 	it('validate', function() {
 		
-		should.strictEqual(test.a, 0);
-		should.strictEqual(test.b, 1);
-		should.strictEqual(test.c, '');
-		should.strictEqual(test.d, 'string');
-		should.strictEqual(test.e, null);
+		assert.equal(test.a, 0);
+		assert.equal(test.b, 1);
+		assert.equal(test.c, '');
+		assert.equal(test.d, 'string');
+		assert.equal(test.e, null);
 	});
 	
 	it('watch');
 });
 
-describe('(clean up)', function() {
-	
-	it('remove test data file', function() {
-		fs.unlinkSync(testDataPath);
+describe('formatRecordedName', function() {
+	it('pads episode numbers without the legacy string helper', function() {
+		const program = {
+			start: Date.UTC(2026, 8, 4),
+			episode: 7,
+			channel: { type: 'GR', channel: '27', id: 'test', sid: 1, name: 'Test' },
+			title: 'Title',
+			fullTitle: 'Title',
+			subTitle: '',
+			category: 'anime',
+			tuner: { name: 'test' }
+		};
+
+		assert.equal(chinachu.formatRecordedName(program, '<episode:3>.m2ts'), '007.m2ts');
 	});
 });

@@ -14,7 +14,7 @@ var RECORDED_DATA_FILE  = __dirname + '/data/recorded.json';
 
 // 標準モジュールのロード
 var fs            = require('fs');
-var util          = require('util');
+var util          = require('./common/lib/runtime-util');
 var net           = require('net');
 var child_process = require('child_process');
 

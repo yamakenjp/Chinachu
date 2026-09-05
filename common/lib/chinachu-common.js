@@ -12,7 +12,6 @@ var path       = require('path');
 var crypto     = require('crypto');
 var dateFormat = require('dateformat');
 var child_process = require('child_process');
-var string = require('@chezearth/string');
 
 var execSync   = function (command) {
 	try {
@@ -31,7 +30,7 @@ exports.jsonWatcher = function (filepath, callback, option) {
 			fs.writeFileSync(filepath, JSON.stringify(option.create));
 		} else {
 			callback('FATAL: `' + filepath + '` is not exists.', null, null);
-			return;
+			return null;
 		}
 	}
 
@@ -66,7 +65,7 @@ exports.jsonWatcher = function (filepath, callback, option) {
 		if (timer !== null) { clearTimeout(timer); }
 		timer = setTimeout(read, option.wait);
 	};
-	fs.watch(filepath, onUpdated);
+	return fs.watch(filepath, onUpdated);
 };
 
 exports.getProgramById = function (id, array) {
@@ -199,7 +198,7 @@ exports.formatRecordedName = function (program, name) {
 			if (isNaN(digit)) {
 				digit = 1;
 			}
-			return program.episode === null ? 'n' : string(program.episode.toString(10)).padLeft(digit, '0').s;
+			return program.episode === null ? 'n' : program.episode.toString(10).padStart(digit, '0');
 		}
 
 		// episode

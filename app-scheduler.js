@@ -14,10 +14,8 @@ const RESERVES_DATA_FILE = __dirname + '/data/reserves.json';
 const SCHEDULE_DATA_FILE = __dirname + '/data/schedule.json';
 
 // 標準モジュールのロード
-const path = require('path');
-const url = require("url");
 const fs = require('fs');
-const util = require('util');
+const util = require('./common/lib/runtime-util');
 const child_process = require('child_process');
 
 // ディレクトリチェック
@@ -31,6 +29,7 @@ const opts = require('opts');
 const dateFormat = require('dateformat');
 const chinachu = require('chinachu-common');
 const mirakurun = new (require("mirakurun").default)();
+const configureMirakurunClient = require('./common/lib/mirakurun-client');
 
 // 引数
 opts.parse([
@@ -52,24 +51,7 @@ let tuners = null;
 
 // Mirakurun Client
 const mirakurunPath = config.mirakurunPath || config.schedulerMirakurunPath || "http+unix://%2Fvar%2Frun%2Fmirakurun.sock/";
-
-if (/(?:\/|\+)unix:/.test(mirakurunPath) === true) {
-	const standardFormat = /^http\+unix:\/\/([^\/]+)(\/?.*)$/;
-	const legacyFormat = /^http:\/\/unix:([^:]+):?(.*)$/;
-
-	if (standardFormat.test(mirakurunPath) === true) {
-		mirakurun.socketPath = mirakurunPath.replace(standardFormat, "$1").replace(/%2F/g, "/");
-		mirakurun.basePath = path.join(mirakurunPath.replace(standardFormat, "$2"), mirakurun.basePath);
-	} else {
-		mirakurun.socketPath = mirakurunPath.replace(legacyFormat, "$1");
-		mirakurun.basePath = path.join(mirakurunPath.replace(legacyFormat, "$2"), mirakurun.basePath);
-	}
-} else {
-	const urlObject = url.parse(mirakurunPath);
-	mirakurun.host = urlObject.hostname;
-	mirakurun.port = urlObject.port;
-	mirakurun.basePath = path.join(urlObject.pathname, mirakurun.basePath);
-}
+configureMirakurunClient(mirakurun, mirakurunPath);
 
 mirakurun.userAgent = `Chinachu/${pkg.version} (scheduler)`;
 
