@@ -17,6 +17,7 @@ const RECORDED_DATA_FILE  = __dirname + '/data/recorded.json';
 const fs = require('fs');
 const util = require('./common/lib/runtime-util');
 const child_process = require('child_process');
+const bindRecordingFinalizer = require('./common/lib/recording-lifecycle');
 
 // ディレクトリチェック
 if (!fs.existsSync('./data/') || !fs.existsSync('./log/') || !fs.existsSync('./web/')) {
@@ -339,9 +340,7 @@ function doRecord(program, stream) {
 	const recFile = fs.createWriteStream(recPath, { flags: 'a' });
 	util.log('STREAM: ' + recPath);
 	stream.pipe(recFile);
-
-	// 録画プロセス終了時処理
-	stream.once('end', finalize);
+	const finalize = bindRecordingFinalizer(stream, recFile, finishRecording);
 
 	// 終了シグナル時処理
 	process.on('SIGINT', finalize);
@@ -354,8 +353,14 @@ function doRecord(program, stream) {
 
 	// 内部用
 	Object.defineProperty(program, "_stream", {
+		configurable: true,
 		enumerable: false,
 		value: stream
+	});
+	Object.defineProperty(program, "_finalize", {
+		configurable: true,
+		enumerable: false,
+		value: finalize
 	});
 
 	// Tweeter (Experimental)
@@ -375,16 +380,12 @@ function doRecord(program, stream) {
 	}
 
 	// お片付け
-	function finalize() {
-
-		stream.unpipe();
-		if (stream.req && !stream.req.destroyed) {
-			stream.req.destroy();
-		}
-
+	function finishRecording() {
 		process.removeListener('SIGINT', finalize);
 		process.removeListener('SIGQUIT', finalize);
 		process.removeListener('SIGTERM', finalize);
+		delete program._stream;
+		delete program._finalize;
 
 		// 書き込みストリームを閉じる
 		recFile.end();
@@ -401,8 +402,12 @@ function doRecord(program, stream) {
 				break;
 			}
 		}
+		delete program.abort;
 		recorded.push(program);
-		recording.splice(recording.indexOf(program), 1);
+		const recordingIndex = recording.indexOf(program);
+		if (recordingIndex !== -1) {
+			recording.splice(recordingIndex, 1);
+		}
 		fs.writeFileSync(RECORDED_DATA_FILE, JSON.stringify(recorded));
 		fs.writeFileSync(RECORDING_DATA_FILE, JSON.stringify(recording));
 		util.log('WRITE: ' + RECORDED_DATA_FILE);
@@ -440,8 +445,6 @@ function doRecord(program, stream) {
 			);
 		}
 
-		finalize = null;
-
 		util.log('FIN: ' + printProgram(program));
 	}
 }
@@ -451,8 +454,9 @@ function stopRecording(programId) {
 
 	const program = recording.find(program => program.id === programId);
 
-	if (program && program._stream && program._stream.req && !program._stream.req.destroyed) {
-		program._stream.req.destroy();
+	if (program && typeof program._finalize === 'function') {
+		util.log('ABORT: ' + printProgram(program));
+		program._finalize();
 	}
 }
 

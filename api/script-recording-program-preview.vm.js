@@ -12,8 +12,6 @@
 	
 	if (!fs.existsSync(program.recorded)) return response.error(410);
 	
-	response.head(200);
-	
 	var width  = request.query.width;
 	var height = request.query.height;
 	
@@ -35,39 +33,57 @@
 	if (request.type === 'png') { vcodec = 'png'; }
 	if (request.type === 'txt') { vcodec = 'mjpeg'; }
 	
-	var ffmpeg = child_process.exec(
-		(
-			'tail -c 3200000 "' + program.recorded + '" | ' +
-			'ffmpeg -f mpegts -r 10 -i pipe:0 -ss 1.5 -r 10 -frames:v 1 -f image2 -codec:v ' + vcodec +
-			' -an -s ' + width + 'x' + height + ' -map 0:0 -y pipe:1'
-		)
-		,
-		{
-			encoding: 'binary',
-			maxBuffer: 3200000
-		}
-		,
-		function(err, stdout, stderr) {
-			if (err) {
-				util.log(err);
-				return response.error(503);
-			}
-			
-			if (request.type === 'txt') {
-				if (vcodec === 'mjpeg') {
-					response.end('data:image/jpeg;base64,' + Buffer.from(stdout, 'binary').toString('base64'));
-				} else if (vcodec === 'png') {
-					response.end('data:image/png;base64,' + Buffer.from(stdout, 'binary').toString('base64'));
+	var attempts = [ true, false ];
+
+	function createPreview() {
+		var nearEnd = attempts.shift();
+		var args = recordingPreview.createFfmpegArgs({
+			recorded: program.recorded,
+			width: width,
+			height: height,
+			codec: vcodec,
+			nearEnd: nearEnd
+		});
+		var ffmpeg = child_process.execFile(
+			'ffmpeg',
+			args,
+			{
+				encoding: null,
+				maxBuffer: 3200000
+			},
+			function(err, stdout, stderr) {
+				clearTimeout(timeout);
+
+				if (err || !Buffer.isBuffer(stdout) || stdout.length === 0) {
+					if (attempts.length > 0) {
+						return createPreview();
+					}
+
+					util.log('ERROR: recording preview failed: ' +
+						(err ? err.message : 'ffmpeg returned an empty image') +
+						(stderr && stderr.length > 0 ? '\n' + stderr.toString() : ''));
+					return response.error(503);
 				}
-			} else {
-				response.end(stdout, 'binary');
+
+				response.head(200);
+				if (request.type === 'txt') {
+					if (vcodec === 'mjpeg') {
+						response.end('data:image/jpeg;base64,' + stdout.toString('base64'));
+					} else if (vcodec === 'png') {
+						response.end('data:image/png;base64,' + stdout.toString('base64'));
+					}
+				} else {
+					response.end(stdout);
+				}
 			}
-			clearTimeout(timeout);
-		}
-	);
-	
-	var timeout = setTimeout(function() {
-		ffmpeg.kill('SIGKILL');
-	}, 3000);
+		);
+
+		children.push(ffmpeg.pid);
+		var timeout = setTimeout(function() {
+			ffmpeg.kill('SIGKILL');
+		}, 6000);
+	}
+
+	createPreview();
 
 })();

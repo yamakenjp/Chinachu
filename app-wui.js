@@ -40,6 +40,7 @@ const geoip = require('geoip-lite');
 const mdns = require('mdns-js');
 const mirakurun = new (require("mirakurun").default)();
 const configureMirakurunClient = require('./common/lib/mirakurun-client');
+const recordingPreview = require('./common/lib/recording-preview');
 
 // Directory Checking
 if (!fs.existsSync('./data/') || !fs.existsSync('./log/') || !fs.existsSync('./web/')) {
@@ -636,6 +637,7 @@ function httpServerMain(req, res, query) {
 				zlib         : zlib,
 				chinachu     : chinachu,
 				mirakurun    : mirakurun,
+				recordingPreview: recordingPreview,
 				config       : config,
 				define: {
 					CONFIG_FILE        : CONFIG_FILE,

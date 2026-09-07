@@ -148,7 +148,7 @@
 		flagrate.createElement("a", {
 			"class": "navbar-brand",
 			href: "#!/dashboard/top/"
-		}).insert("Chinachu<i>γ</i>").insertTo(navbarHeader);
+		}).insert("Chinachu<i>γ</i> <small>yamaken Node 24</small>").insertTo(navbarHeader);
 
 		var navbar = flagrate.createElement("div", { id: "navbar", "class": "navbar-collapse collapse" }).insertTo(app.view.header);
 		var nav = flagrate.createElement("ul", { "class": "nav navbar-nav" }).insertTo(navbar);
@@ -224,7 +224,7 @@
 				icon   : './icons/information-italic.png',
 				onClick: function() {
 					new flagrate.Modal({
-						title   : 'Chinachu',
+						title   : 'Chinachu — yamaken Node 24',
 						subtitle: 'Copyright (c) 2012 Yuki KAN and Chinachu Project Contributors.',
 						html    : '<a href="https://chinachu.moe/" target="new">Chinachu Project Website</a>, ' +
 						          '<a href="https://github.com/kanreisa/Chinachu" target="new">GitHub</a>, ' +
